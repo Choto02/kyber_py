@@ -8,47 +8,48 @@ KYBER_N = 256  # Polynomial degree
 KYBER_Q = 3329  # Modulus
 KYBER_K = 2  # Number of polynomials in the vector (k = 2 for Kyber-512)
 ETA = 2  # CBD parameter for Kyber-512
+root_of_unity = 17
+
+        
 
 def pke_keygen():
+    
     d = os.urandom(32)
     rho, sigma = _G(d + bytes([KYBER_K]))
 
     A_hat = generate_matrix(rho, True)
+
+    
 
     # Set counter for PRF
     N = 0
 
     # Generate the error vector s ∈ R^k
     s, N = _generate_error_vector(sigma, ETA, N)
+    #print(s)
 
     # Generate the error vector e ∈ R^k
     e, N = _generate_error_vector(sigma, ETA, N)
 
-    s_hat = s.to_ntt()
-    e_hat = e.to_ntt()
+    ntt_zetas = [
+            pow(root_of_unity, _br(i, 7), 3329) for i in range(128)
+        ]
 
-    # # Debugging
-    # print(f"Secret vector length: {len(s)} (expected: {KYBER_K})")
-    # print(f"First polynomial in s has length: {len(s[0])} (expected: {KYBER_N})")
+    s_hat = vector_to_ntt(s, ntt_zetas)
+    e_hat = vector_to_ntt(e, ntt_zetas)
 
-    # # Step 4: Compute t = A * s + e
-    # t = []
-    # for i in range(KYBER_K):
-    #     t_i = [0] * KYBER_N
-    #     for j in range(KYBER_K):
-    #         a_s = [(A[i][j][k] * s[j][k]) % KYBER_Q for k in range(KYBER_N)]
-    #         t_i = [(t_i[k] + a_s[k]) % KYBER_Q for k in range(KYBER_N)]
-    #     t_i = [(t_i[k] + e[i][k]) % KYBER_Q for k in range(KYBER_N)]
-    #     t.append(t_i)
+    print(len(A_hat[0]))
+    print(len(s_hat))
 
-    # # Public key includes t and rho
-    # public_key = (t, rho)
+    As_hat = matrix_multiply(A_hat, s_hat)
+    t_hat = matrix_addition(As_hat, e_hat)
+    
+    # Byte encode
+    ek_pke = t_hat.encode(12) + rho
+    dk_pke = s_hat.encode(12)
 
-    # # Private key is the secret vector s
-    # private_key = s
+    return (ek_pke, dk_pke)
 
-    #return public_key, private_key
-    return N
 
 def _G(s):
     """
@@ -143,7 +144,101 @@ def bit_count(x: int) -> int:
     """
     return x.bit_count()
 
+def matrix_to_ntt(matrix, ntt_zeta):
+    """
+    Convert every element of the matrix into NTT form
+    """
+    print(matrix)
+    data = [[to_ntt(x, ntt_zeta) for x in row] for row in matrix]
+    
+    return data
 
+def vector_to_ntt(matrix, ntt_zeta):
+    """
+    Convert every element of the matrix into NTT form
+    """
+    print(matrix)
+    data = [to_ntt(x, ntt_zeta) for x in matrix]
+    
+    return data
+
+def to_ntt(input_coeffs, input_ntt_zetas):
+    """
+    Convert a polynomial to number-theoretic transform (NTT) form.
+    The input is in standard order, the output is in bit-reversed order.
+    """
+    k, l = 1, 128
+    coeffs = input_coeffs
+    zetas = input_ntt_zetas
+    
+    while l >= 2:
+        start = 0
+        while start < 256:
+            zeta = zetas[k]
+            k = k + 1
+            for j in range(start, start + l):
+                t = zeta * coeffs[j + l]
+                coeffs[j + l] = coeffs[j] - t
+                coeffs[j] = coeffs[j] + t
+            start = l + (j + 1)
+        l = l >> 1
+
+    for j in range(256):
+        coeffs[j] = coeffs[j] % 3329
+
+    return coeffs
+
+def _br(i, k):
+        """
+        bit reversal of an unsigned k-bit integer
+        """
+        bin_i = bin(i & (2**k - 1))[2:].zfill(k)
+        return int(bin_i[::-1], 2)
+
+def matrix_multiply(A, B):
+    """
+    Multiplies two matrices A and B.
+    Args:
+        A: Matrix A (list of lists), dimensions m x n.
+        B: Matrix B (list of lists), dimensions n x p.
+    Returns:
+        result: Resulting matrix (list of lists), dimensions m x p.
+    Raises:
+        ValueError: If matrix dimensions are incompatible for multiplication.
+    """
+    # Validate dimensions
+    if len(A[0]) != len(B):
+        raise ValueError("Matrix dimensions do not match for multiplication. A's columns must equal B's rows.")
+    
+    # Initialize the result matrix with zeros
+    result = [[0 for _ in range(len(B[0]))] for _ in range(len(A))]
+    
+    # Perform multiplication
+    for i in range(len(A)):  # Iterate over rows of A
+        for j in range(len(B[0])):  # Iterate over columns of B
+            for k in range(len(B)):  # Iterate over rows of B / columns of A
+                result[i][j] += A[i][k] * B[k][j]
+    
+    return result
+
+def matrix_addition(A, B):
+    """
+    Adds two matrices A and B element-wise.
+    Args:
+        A: Matrix A (list of lists), dimensions m x n.
+        B: Matrix B (list of lists), dimensions m x n.
+    Returns:
+        result: Resulting matrix (list of lists), dimensions m x n.
+    Raises:
+        ValueError: If matrix dimensions do not match.
+    """
+    # Validate dimensions
+    if len(A) != len(B) or len(A[0]) != len(B[0]):
+        raise ValueError("Matrix dimensions do not match for addition.")
+    
+    # Perform element-wise addition
+    result = [[A[i][j] + B[i][j] for j in range(len(A[0]))] for i in range(len(A))]
+    return result
 
 def shake128(input_bytes, output_length):
     shake = shake_128()
@@ -151,8 +246,9 @@ def shake128(input_bytes, output_length):
     return shake.digest(output_length)
 
 
+
 ### Example Usage ###
 
 if __name__ == "__main__":
-    Y = pke_keygen()
+    ek, dk = pke_keygen()
     
