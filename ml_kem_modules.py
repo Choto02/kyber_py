@@ -6,6 +6,40 @@ KYBER_Q = 3329  # Modulus
 KYBER_K = 2  # Number of polynomials in the vector (k = 2 for Kyber-512)
 ETA = 2  # CBD parameter for Kyber-512
 
+zetas = [1, 1729, 2580, 3289, 2642, 630, 1897, 848,
+    1062, 1919, 193, 797, 2786, 3260, 569, 1746,
+    296, 2447, 1339, 1476, 3046, 56, 2240, 1333,
+    1426, 2094, 535, 2882, 2393, 2879, 1974, 821,
+    289, 331, 3253, 1756, 1197, 2304, 2277, 2055,
+    650, 1977, 2513, 632, 2865, 33, 1320, 1915,
+    2319, 1435, 807, 452, 1438, 2868, 1534, 2402,
+    2647, 2617, 1481, 648, 2474, 3110, 1227, 910,
+    17, 2761, 583, 2649, 1637, 723, 2288, 1100,
+    1409, 2662, 3281, 233, 756, 2156, 3015, 3050,
+    1703, 1651, 2789, 1789, 1847, 952, 1461, 2687,
+    939, 2308, 2437, 2388, 733, 2337, 268, 641,
+    1584, 2298, 2037, 3220, 375, 2549, 2090, 1645,
+    1063, 319, 2773, 757, 2099, 561, 2466, 2594,
+    2804, 1092, 403, 1026, 1143, 2150, 2775, 886,
+    1722, 1212, 1874, 1029, 2110, 2935, 885, 2154]
+
+zetas2 = [17, -17, 2761, -2761, 583, -583, 2649, -2649,
+    1637, -1637, 723, -723, 2288, -2288, 1100, -1100,
+    1409, -1409, 2662, -2662, 3281, -3281, 233, -233,
+    756, -756, 2156, -2156, 3015, -3015, 3050, -3050,
+    1703, -1703, 1651, -1651, 2789, -2789, 1789, -1789,
+    1847, -1847, 952, -952, 1461, -1461, 2687, -2687,
+    939, -939, 2308, -2308, 2437, -2437, 2388, -2388,
+    733, -733, 2337, -2337, 268, -268, 641, -641,
+    1584, -1584, 2298, -2298, 2037, -2037, 3220, -3220,
+    375, -375, 2549, -2549, 2090, -2090, 1645, -1645,
+    1063, -1063, 319, -319, 2773, -2773, 757, -757,
+    2099, -2099, 561, -561, 2466, -2466, 2594, -2594,
+    2804, -2804, 1092, -1092, 403, -403, 1026, -1026,
+    1143, -1143, 2150, -2150, 2775, -2775, 886, -886,
+    1722, -1722, 1212, -1212, 1874, -1874, 1029, -1029,
+    2110, -2110, 2935, -2935, 885, -885, 2154, -2154]
+
 def BitsToBytes(b):
     """
     Converts a bit array (of a length that is a multiple of eight) into an array of bytes. Algorithm 3
@@ -185,5 +219,66 @@ def NTT_inv(f_hat, zetas):
     """
     Computes ̂ the polynomial 𝑓 ∈ 𝑅𝑞 that corresponds to the given NTT representation 𝑓 ∈ 𝑇𝑞.
     """
+    f = f_hat
+    l = 2
+    k = 127
+    while l <= 128:
+        start = 0
+        while start < 256:
+            zeta = zetas[k]
+            k = k - 1
+            for j in range(start, start + l):
+                t = f[j]
+                f[j] = t + f[j + l]
+                f[j + l] = f[j + l] - t
+                f[j + l] = zeta * f[j + l]
+            start = j + l + 1
+        l = l << 1
+
+    for j in range(256):
+        f[j] = (f[j] * 3303) % 3329
     
-    return f_hat
+    return f
+
+def MultiplyNTTs(f_hat, g_hat, zetas2):
+    h_hat = []
+    for i in range(128):
+        h_hat[2*i], h_hat[2*i + 1] = BaseCaseMultiply(f_hat[2*i],f_hat[2*i + 1],g_hat[2*i],g_hat[2*i + 1], zetas2[i+1])
+    return h_hat
+
+def BaseCaseMultiply (a0, a1, b0, b1, gamma):
+    c0 = a0*b0 + a1*b1*gamma
+    c0 = c0 % 3329
+    c1 = a0*b1 + a1*b0
+    c1 = c1 % 3329
+    return (c0,c1)
+
+def K_PKE_KeyGen(d):
+    """
+    Use randomness to generate an encryption key and a corresponding decryption key 
+    """
+#########################################################
+    rho, sigma = G(d + bytes([self.k]))
+
+    # Generate A_hat from seed rho
+    A_hat = self._generate_matrix_from_seed(rho)
+
+    # Set counter for PRF
+    N = 0
+
+    # Generate the error vector s ∈ R^k
+    s, N = self._generate_error_vector(sigma, self.eta_1, N)
+
+    # Generate the error vector e ∈ R^k
+    e, N = self._generate_error_vector(sigma, self.eta_1, N)
+
+    # Compute public value (in NTT form)
+    s_hat = s.to_ntt()
+    e_hat = e.to_ntt()
+    t_hat = A_hat @ s_hat + e_hat
+
+    # Byte encode
+    ek_pke = t_hat.encode(12) + rho
+    dk_pke = s_hat.encode(12)
+
+    return (ek_pke, dk_pke)
