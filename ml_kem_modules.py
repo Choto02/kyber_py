@@ -4,7 +4,10 @@ from hashlib import sha3_256, sha3_512, shake_128, shake_256
 KYBER_N = 256  # Polynomial degree
 KYBER_Q = 3329  # Modulus
 KYBER_K = 2  # Number of polynomials in the vector (k = 2 for Kyber-512)
-ETA = 2  # CBD parameter for Kyber-512
+ETA1 = 3  # CBD parameter for Kyber-512
+ETA2 = 2
+du = 10
+dv = 4
 
 zetas = [1, 1729, 2580, 3289, 2642, 630, 1897, 848,
     1062, 1919, 193, 797, 2786, 3260, 569, 1746,
@@ -253,28 +256,113 @@ def BaseCaseMultiply (a0, a1, b0, b1, gamma):
     c1 = c1 % 3329
     return (c0,c1)
 
+def _prf(eta, s, b):
+    """
+    Pseudorandom function described in 4.3 of FIPS 203 (page 18)
+    """
+    input_bytes = s + b
+    if len(input_bytes) != 33:
+        raise ValueError(
+            "Input bytes should be one 32 byte array and one single byte."
+        )
+    return shake_256(input_bytes).digest(eta * 64)
+
+
+def H(s):
+    """
+    Hash function described in 4.4 of FIPS 203 (page 18)
+    """
+    return sha3_256(s).digest()
+
+
+def J(s):
+    """
+    Hash function described in 4.4 of FIPS 203 (page 18)
+    """
+    return shake_256(s).digest()
+
+
+def G(s):
+    """
+    Hash function described in 4.5 of FIPS 203 (page 18)
+    """
+    h = sha3_512(s).digest()
+    return h[:32], h[32:]
+
+def transpose_matrix(matrix):
+    """
+    Transposes a given matrix (list of lists).
+    """
+    # Use list comprehension to transpose the matrix
+    transposed = [[matrix[j][i] for j in range(len(matrix))] for i in range(len(matrix[0]))]
+    return transposed
+
+def _compress_ele(x, d):
+    """
+    Compute round((2^d / q) * x) % 2^d
+    """
+    t = 1 << d
+    y = (t * x + 1664) // 3329  # 1664 = 3329 // 2
+    return y % t
+
+def _decompress_ele(x, d):
+    """
+    Compute round((q / 2^d) * x)
+    """
+    t = 1 << (d - 1)
+    y = (3329 * x + t) >> d
+    return y
+
+def compress(d, coeffs):
+    """
+    Compress the polynomial by compressing each coefficient
+
+    NOTE: This is lossy compression
+    """
+    coeffs_new = [_compress_ele(c, d) for c in coeffs]
+    return coeffs_new
+
+def decompress(d, coeffs):
+    """
+    Decompress the polynomial by decompressing each coefficient
+
+    NOTE: This as compression is lossy, we have
+    x' = decompress(compress(x)), which x' != x, but is
+    close in magnitude.
+    """
+    coeffs_new = [_decompress_ele(c, d) for c in coeffs]
+    return coeffs_new
+
 def K_PKE_KeyGen(d):
     """
     Use randomness to generate an encryption key and a corresponding decryption key 
     """
 #########################################################
-    rho, sigma = G(d + bytes([self.k]))
-
-    # Generate A_hat from seed rho
-    A_hat = self._generate_matrix_from_seed(rho)
-
+    rho, sigma = G(d + bytes(KYBER_K))
+    i, j = 0
+    A_hat = [[0 for _ in range(KYBER_K)] for _ in range(KYBER_K)]
+    s_hat = []
+    e_hat = []
     # Set counter for PRF
     N = 0
 
-    # Generate the error vector s ∈ R^k
-    s, N = self._generate_error_vector(sigma, self.eta_1, N)
+    for i in range(KYBER_K):
+        for j in range(KYBER_K):
+            A_hat[i][j] = SampleNTT(XOF(rho, bytes([j]), bytes([i])))
+    
+    i = 0
+    for i in range(KYBER_K):
+        s_hat.append(SamplePolyCBD(_prf(ETA1, sigma, N),ETA1))
+    N = N + 1
 
-    # Generate the error vector e ∈ R^k
-    e, N = self._generate_error_vector(sigma, self.eta_1, N)
+    i = 0
+    for i in range(KYBER_K):
+        e_hat.append(SamplePolyCBD(_prf(ETA1, sigma, N),ETA1))
+    N = N + 1
 
     # Compute public value (in NTT form)
-    s_hat = s.to_ntt()
-    e_hat = e.to_ntt()
+    s_hat = NTT(s_hat)
+    e_hat = NTT(e_hat)
     t_hat = A_hat @ s_hat + e_hat
 
     # Byte encode
@@ -282,3 +370,59 @@ def K_PKE_KeyGen(d):
     dk_pke = s_hat.encode(12)
 
     return (ek_pke, dk_pke)
+
+def K_PKE_Encrypt(ek_pke,m,r):
+    N = 0
+    i,j = 0
+    r_bold = []
+    e1 = []
+    t_hat = ByteDecode(ek_pke[0:384*KYBER_K],12)
+    rho = ek_pke[384*KYBER_K:384*KYBER_K+32]
+    A_hat = [[0 for _ in range(KYBER_K)] for _ in range(KYBER_K)]
+
+    for i in range(KYBER_K):
+        for j in range(KYBER_K):
+            A_hat[i][j] = SampleNTT(XOF(rho, bytes([i]), bytes([j])))
+
+    i = 0
+    for i in range (KYBER_K):
+        r_bold[i] = SamplePolyCBD(_prf(ETA1,r,N),ETA1)
+        N = N + 1
+
+    i = 0
+    for i in range (KYBER_K):
+        e1[i] = SamplePolyCBD(_prf(ETA2,r,N),ETA2)
+        N = N + 1
+    
+    e2 = SamplePolyCBD(_prf(ETA2,r,N),ETA2)
+
+    r_bold_hat = NTT(r_bold,zetas)
+    A_hat_T = transpose_matrix(A_hat)
+    u_bold = NTT(A_hat_T @ r_bold_hat) + e1
+    mu = decompress(1,ByteDecode(m,1))
+    t_hat_T = transpose_matrix(t_hat)
+    v = NTT_inv(t_hat_T @ r_bold_hat) + e2 + mu
+    c1 = ByteEncode(compress(du,u_bold),du)
+    c2 = ByteEncode(compress(dv,v),dv)
+
+    return c1 + c2
+
+
+def K_PKE_Decrypt(dk_pke, c):
+    """
+    Uses the decryption key to decrypt a ciphertext following
+    Algorithm 15 (FIPS 203)
+    """
+    n = KYBER_K * du * 32
+    c1, c2 = c[:n], c[n:]
+
+    u = decompress(du,ByteDecode(c1,du))
+    v = decompress(dv,ByteDecode(c2,dv))
+    s_hat = ByteDecode(dk_pke,12)
+
+    u_hat = NTT(u)
+    s_hat_T = transpose_matrix(s_hat)
+    w = v - NTT_inv(s_hat_T @ u_hat)
+    m = ByteEncode(compress(1,w),1)
+
+    return m
