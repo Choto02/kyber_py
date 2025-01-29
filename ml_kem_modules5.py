@@ -153,10 +153,15 @@ def ByteDecode(B,d):
     
     return F
 
-def XOF(input_bytes):
+def XOF(bytes32, i, j):
         """
         eXtendable-Output Function (XOF) described in 4.9 of FIPS 203 (page 19)
         """
+        input_bytes = bytes32 + i + j
+        if len(input_bytes) != 34:
+            raise ValueError(
+                "Input bytes should be one 32 byte array and 2 single bytes."
+            )
         return shake_128(input_bytes).digest(840)
 
 def SampleNTT(B):
@@ -448,8 +453,6 @@ def K_PKE_Encrypt(ek_pke,m,r):
         print("T_HAT_BYTES: ",i, "Length: ", len(t_hat_bytes[384*i:384*(i+1)]))
         
 
-
-    #t_hat = Decode_Vector(t_hat_bytes, 12)
     print("T_HAT IS: ")
     print(t_hat)
     
@@ -457,7 +460,9 @@ def K_PKE_Encrypt(ek_pke,m,r):
 
     for i in range(KYBER_K):
         for j in range(KYBER_K):
-            A_hat[i][j] = SampleNTT(XOF(bytes(rho)+ bytes([i])+ bytes([j])))
+            #A_hat[i][j] = SampleNTT(XOF(bytes(rho)+ bytes([i])+ bytes([j])))
+            xof_bytes = XOF(rho, bytes([j]), bytes([i]))
+            A_hat[i][j] = SampleNTT(xof_bytes)
 
     i = 0
     for i in range (KYBER_K):
@@ -550,7 +555,7 @@ if __name__ == "__main__":
     plaintext = "Hello world"
     r = H(bytes(123))
 
-    ciphertext = K_PKE_Encrypt(dk_pke, bytes(12345),r)
+    ciphertext = K_PKE_Encrypt(ek_pke, bytes(12345),r)
     print("Ciphertext:", ciphertext)
 
     #ciphertext = bytes(999)
