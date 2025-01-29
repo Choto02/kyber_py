@@ -358,6 +358,8 @@ def K_PKE_KeyGen(d):
     s_hat = []
     e = []
     e_hat = []
+    ek_pke = []
+    dk_pke = []
     N = 0  # Set counter for PRF
     rho, sigma = G(d + bytes(KYBER_K))
 
@@ -377,7 +379,6 @@ def K_PKE_KeyGen(d):
 
     s_hat = [NTT(poly, zetas) for poly in s]
     e_hat = [NTT(poly, zetas) for poly in e]
-    # t_hat = A_hat @ s_hat + e_hat
 
     # Compute t_hat = A_hat @ s_hat + e_hat
     t_hat = [[0] * len(s_hat[0]) for _ in range(KYBER_K)]
@@ -388,12 +389,13 @@ def K_PKE_KeyGen(d):
         t_hat[i] = [(t_hat[i][k] + e_hat[i][k]) % KYBER_Q for k in range(len(e_hat[i]))]
 
 
-    # ek_pke = ByteEncode(t_hat,12) + rho
-    # dk_pke = ByteEncode(s_hat,12)
+    for i in range(KYBER_K):
+            ek_pke += (ByteEncode(t_hat[i], 12))
+    ek_pke += rho
 
-    ek_pke = bytes(ByteEncode([item for sublist in t_hat for item in sublist], 12)) + rho
-    dk_pke = bytes(ByteEncode([item for sublist in s_hat for item in sublist], 12))
-    
+    for i in range(KYBER_K):
+            dk_pke += (ByteEncode(s_hat[i], 12))
+
     return (ek_pke, dk_pke)
 
 def K_PKE_Decrypt(dk_pke, c):
@@ -438,13 +440,24 @@ def K_PKE_Encrypt(ek_pke,m,r):
     AT_y_inv = []
     e1 = []
     t_hat_bytes, rho = ek_pke[:-32], ek_pke[-32:]
-    t_hat = Decode_Vector(t_hat_bytes, 12)
+    t_hat = []
+
+
+    for i in range(KYBER_K):
+        t_hat.append(Decode_Vector(t_hat_bytes[384*i:384*(i+1)], 12))
+        print("T_HAT_BYTES: ",i, "Length: ", len(t_hat_bytes[384*i:384*(i+1)]))
+        
+
+
+    #t_hat = Decode_Vector(t_hat_bytes, 12)
+    print("T_HAT IS: ")
+    print(t_hat)
     
     A_hat = [[0 for _ in range(KYBER_K)] for _ in range(KYBER_K)]
 
     for i in range(KYBER_K):
         for j in range(KYBER_K):
-            A_hat[i][j] = SampleNTT(XOF(rho+ bytes([i])+ bytes([j])))
+            A_hat[i][j] = SampleNTT(XOF(bytes(rho)+ bytes([i])+ bytes([j])))
 
     i = 0
     for i in range (KYBER_K):
@@ -467,19 +480,21 @@ def K_PKE_Encrypt(ek_pke,m,r):
 
     # Compute t_hat = A_hat_T @ r_bold_hat 
     #u_bold = [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
-    u_bold_temp = [0 for _ in range(KYBER_K)]
+    #u_bold_temp = [0 for _ in range(KYBER_K)]
+    u_bold_temp = [[],[]]
+
     u_bold = [0 for _ in range(KYBER_K)]
-    t_hat =  [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
+    #t_hat =  [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
     for i in range(KYBER_K):
         for j in range(KYBER_K):
             for k in range(len(r_bold_hat[j])):
                 #t_hat[i][k] += A_hat_T[i][j][k] * r_bold_hat[j][k]
-                u_bold_temp.append(A_hat_T[i][j][k] * r_bold_hat[j][k]) 
+                u_bold_temp[i].append(A_hat_T[i][j][k] * r_bold_hat[j][k]) 
 
 
-    print(u_bold_temp)
+    
     AT_r_inv = [NTT_inv(poly, zetas) for poly in u_bold_temp]
-    # + e1
+
     for i in range(KYBER_K):
         #for j in range(KYBER_K):
         for k in range(len(u_bold_temp[j])):   
@@ -494,28 +509,32 @@ def K_PKE_Encrypt(ek_pke,m,r):
     #v_hat    = [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
     #v_hat    = [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
     #tT_y_inv =  [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
-
-    v_hat    = [[[0] for _ in range(len(r_bold_hat[0]))] for _ in range(KYBER_K)]
+    v_hat = [[],[]]
+    
+    #v_hat    = [[[0] for _ in range(1)] for _ in range(KYBER_K)]
     tT_y_inv =  [[[0] for _ in range(len(r_bold_hat[0]))] for _ in range(KYBER_K)]
     #for i in range(KYBER_K):
-
+    print("V_HAT: ",v_hat)
     
     for j in range(KYBER_K):
         for k in range(len(r_bold_hat[j])):
             #v_hat[i][k] += t_hat_T[i][j][k] * r_bold_hat[j][k]
-            v_hat[j][k] += t_hat_T[j][k] * r_bold_hat[k][j]
+            #v_hat[j][k] += t_hat_T[j][k] * r_bold_hat[k][j]
+            #v_hat[j].append(t_hat_T[k][j] * r_bold_hat[j][k]) #array may not be correct
+            v_hat[i].append(t_hat_T[k] * r_bold_hat[j][k]) 
+    print("T_HAT IS: ")
+    print(t_hat)
 
-
-   
     tT_y_inv = [NTT_inv(poly, zetas) for poly in v_hat]
+    
     # + e2 + mu
     for i in range(KYBER_K):
         for j in range(KYBER_K):
             for k in range(len(r_bold_hat[j])):   
-                u_bold[i] = [(tT_y_inv[i][k] + e2[i][k]) % KYBER_Q for k in range(len(e2[i]))] 
-                u_bold[i] = [(tT_y_inv[i][k] + mu[i][k]) % KYBER_Q for k in range(len(e2[i]))] 
+                u_bold[i] = [(tT_y_inv[i][k] + e2[k]) % KYBER_Q for k in range(len(e2))] 
+                u_bold[i] = [(tT_y_inv[i][k] + mu[k]) % KYBER_Q for k in range(len(mu))] 
 
-    v = NTT_inv(t_hat_T @ r_bold_hat) + e2 + mu
+    #v = NTT_inv(t_hat_T @ r_bold_hat) + e2 + mu
     c1 = ByteEncode(compress(du,u_bold),du)
     c2 = ByteEncode(compress(dv,v),dv)
 
@@ -524,15 +543,14 @@ def K_PKE_Encrypt(ek_pke,m,r):
 
 
 if __name__ == "__main__":
-    public_key, private_key = K_PKE_KeyGen(bytes(1422))
-    print("Public Key:", public_key)
-    print("Private Key:", private_key)
+    ek_pke, dk_pke = K_PKE_KeyGen(bytes(1422))
+    print("Public Key Length:", len(ek_pke))
+    print("Private Key Length:", len(dk_pke))
 
     plaintext = "Hello world"
     r = H(bytes(123))
 
-    ciphertext = K_PKE_Encrypt(private_key, bytes(12345),r)
+    ciphertext = K_PKE_Encrypt(dk_pke, bytes(12345),r)
     print("Ciphertext:", ciphertext)
 
     #ciphertext = bytes(999)
-
