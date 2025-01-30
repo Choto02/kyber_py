@@ -164,21 +164,14 @@ def ByteDecode(B,d):
 #             )
 #         return shake_128(input_bytes).digest(840)
 
-def XOF(bytes32: bytes, i: int, j: int) -> bytes:
-    """
-    eXtendable-Output Function (XOF) described in 4.9 of FIPS 203 (page 19)
-    """
-    # Convert i and j to single-byte bytes objects
-    i_bytes = bytes([i])
-    j_bytes = bytes([j])
-
-    # Concatenate bytes objects
-    input_bytes = bytes32 + i_bytes + j_bytes
+def XOF(bytes32, j, i):
+    if not isinstance(bytes32, bytes):
+        raise TypeError(f"bytes32 must be a bytes object, but got {type(bytes32)}")
     
-    if len(input_bytes) != 34:
-        raise ValueError(
-            "Input bytes should be one 32-byte array and 2 single-byte values."
-        )
+    i_bytes = i.to_bytes(2, 'little')
+    j_bytes = j.to_bytes(2, 'little')
+    
+    input_bytes = bytes32 + i_bytes + j_bytes  # Concatenation works with bytes
 
     return shake_128(input_bytes).digest(840)
 
@@ -441,10 +434,16 @@ def Decode_Vector(input_bytes, d):
     n = 32 * d
 
     # Encode each chunk of bytes as a polynomial and create the vector
+    # elements = [
+    #     ByteDecode(input_bytes[i : i + n], d)
+    #     for i in range(0, len(input_bytes), n)
+    # ]
     elements = [
         ByteDecode(input_bytes[i : i + n], d)
         for i in range(0, len(input_bytes), n)
     ]
+
+
     return elements
 
     
@@ -459,23 +458,24 @@ def K_PKE_Encrypt(ek_pke,m,r):
     AT_y_inv = []
     e1 = []
     t_hat_bytes, rho = ek_pke[:-32], ek_pke[-32:]
-    t_hat = []
+    t_hat = [0 for _ in range(KYBER_K)]
 
 
     for i in range(KYBER_K):
-        t_hat.append(Decode_Vector(t_hat_bytes[384*i:384*(i+1)], 12))
+        #t_hat.append(Decode_Vector(t_hat_bytes[384*i:384*(i+1)], 12))
+        t_hat[i] = Decode_Vector(t_hat_bytes[384*i:384*(i+1)], 12)
         print("T_HAT_BYTES: ",i, "Length: ", len(t_hat_bytes[384*i:384*(i+1)]))
         
 
     print("T_HAT IS: ")
-    print(t_hat)
+    print(t_hat[0])
     
     A_hat = [[0 for _ in range(KYBER_K)] for _ in range(KYBER_K)]
 
     for i in range(KYBER_K):
         for j in range(KYBER_K):
             #A_hat[i][j] = SampleNTT(XOF(bytes(rho)+ bytes([i])+ bytes([j])))
-            xof_bytes = XOF(rho, j, i)
+            xof_bytes = XOF(bytes(rho), j, i)
             A_hat[i][j] = SampleNTT(xof_bytes)
 
     i = 0
@@ -533,14 +533,14 @@ def K_PKE_Encrypt(ek_pke,m,r):
     #v_hat    = [[[0] for _ in range(1)] for _ in range(KYBER_K)]
     tT_y_inv =  [[[0] for _ in range(len(r_bold_hat[0]))] for _ in range(KYBER_K)]
     #for i in range(KYBER_K):
-    print("V_HAT: ",v_hat)
+    print("T_HAT: ",t_hat)
     
-    for j in range(KYBER_K):
-        for k in range(len(r_bold_hat[j])):
+    for i in range(KYBER_K):
+        for j in range(len(t_hat_T[0])):
             #v_hat[i][k] += t_hat_T[i][j][k] * r_bold_hat[j][k]
             #v_hat[j][k] += t_hat_T[j][k] * r_bold_hat[k][j]
             #v_hat[j].append(t_hat_T[k][j] * r_bold_hat[j][k]) #array may not be correct
-            v_hat[i].append(t_hat_T[k] * r_bold_hat[j][k]) 
+            v_hat[i].append(t_hat_T[i][j] * r_bold_hat[i][j]) 
     print("T_HAT IS: ")
     print(t_hat)
 
@@ -571,5 +571,8 @@ if __name__ == "__main__":
 
     ciphertext = K_PKE_Encrypt(ek_pke, bytes(12345),r)
     print("Ciphertext:", ciphertext)
+
+
+
 
     #ciphertext = bytes(999)
