@@ -153,31 +153,42 @@ def ByteDecode(B,d):
     
     return F
 
-def XOF(bytes32, i, j):
-        """
-        eXtendable-Output Function (XOF) described in 4.9 of FIPS 203 (page 19)
-        """
-        input_bytes = bytes32 + i + j
-        if len(input_bytes) != 34:
-            raise ValueError(
-                "Input bytes should be one 32 byte array and 2 single bytes."
-            )
-        return shake_128(input_bytes).digest(840)
+# def XOF(bytes32, i, j):
+#         """
+#         eXtendable-Output Function (XOF) described in 4.9 of FIPS 203 (page 19)
+#         """
+#         input_bytes = bytes32 + i + j
+#         if len(input_bytes) != 34:
+#             raise ValueError(
+#                 "Input bytes should be one 32 byte array and 2 single bytes."
+#             )
+#         return shake_128(input_bytes).digest(840)
 
-def SampleNTT(B):
+def XOF(bytes32: bytes, i: int, j: int) -> bytes:
     """
-    Takes a 32-byte seed and two indices as input and outputs a pseudorandom element of 𝑇𝑞.
+    eXtendable-Output Function (XOF) described in 4.9 of FIPS 203 (page 19)
     """
-    #ctx = XOF.Init()
-    #ctx = XOF.Absorb(ctx,B)
+    # Convert i and j to single-byte bytes objects
+    i_bytes = bytes([i])
+    j_bytes = bytes([j])
+
+    # Concatenate bytes objects
+    input_bytes = bytes32 + i_bytes + j_bytes
     
-    j = 0
+    if len(input_bytes) != 34:
+        raise ValueError(
+            "Input bytes should be one 32-byte array and 2 single-byte values."
+        )
+
+    return shake_128(input_bytes).digest(840)
+
+def SampleNTT(input_bytes):
+
+    i, j = 0, 0
     a = []
     while j < 256:
-        #ctx, C = XOF.Squeeze(ctx,3)
-        C = XOF(B)
-        d1 = C[0] + 256 * (C[1] % 16)
-        d2 = (C[1] // 16) + 16 * C[2]
+        d1 = input_bytes[0] + 256 * (input_bytes[1] % 16)
+        d2 = (input_bytes[1] // 16) + 16 * input_bytes[2]
 
         if d1 < 3329:
             a.append(d1)
@@ -186,7 +197,10 @@ def SampleNTT(B):
         if d2 < 3329 and j < 256:
             a.append(d2)
             j = j + 1
+        i = i + 3
     return a
+
+    
 
 
 def SamplePolyCBD(B, eta):
@@ -461,7 +475,7 @@ def K_PKE_Encrypt(ek_pke,m,r):
     for i in range(KYBER_K):
         for j in range(KYBER_K):
             #A_hat[i][j] = SampleNTT(XOF(bytes(rho)+ bytes([i])+ bytes([j])))
-            xof_bytes = XOF(rho, bytes([j]), bytes([i]))
+            xof_bytes = XOF(rho, j, i)
             A_hat[i][j] = SampleNTT(xof_bytes)
 
     i = 0
