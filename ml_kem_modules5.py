@@ -444,7 +444,7 @@ def Decode_Vector(input_bytes, d):
     ]
 
 
-    return elements
+    return [item for sublist in elements for item in sublist]
 
     
 
@@ -467,8 +467,8 @@ def K_PKE_Encrypt(ek_pke,m,r):
         print("T_HAT_BYTES: ",i, "Length: ", len(t_hat_bytes[384*i:384*(i+1)]))
         
 
-    print("T_HAT IS: ")
-    print(t_hat[0])
+    # print("T_HAT IS: ")
+    # print(t_hat)
     
     A_hat = [[0 for _ in range(KYBER_K)] for _ in range(KYBER_K)]
 
@@ -498,19 +498,22 @@ def K_PKE_Encrypt(ek_pke,m,r):
     A_hat_T = transpose_matrix(A_hat)
 
     # Compute t_hat = A_hat_T @ r_bold_hat 
-    #u_bold = [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
+    u_bold = [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
     #u_bold_temp = [0 for _ in range(KYBER_K)]
-    u_bold_temp = [[],[]]
 
-    u_bold = [0 for _ in range(KYBER_K)]
-    #t_hat =  [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
-    for i in range(KYBER_K):
-        for j in range(KYBER_K):
-            for k in range(len(r_bold_hat[j])):
-                #t_hat[i][k] += A_hat_T[i][j][k] * r_bold_hat[j][k]
-                u_bold_temp[i].append(A_hat_T[i][j][k] * r_bold_hat[j][k]) 
+##################### REPLACED WITH MULTIPLY_NTT #################################################
+    # u_bold_temp = [[],[]]
 
+    # u_bold = [0 for _ in range(KYBER_K)]
+    # #t_hat =  [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
+    # for i in range(KYBER_K):
+    #     for j in range(KYBER_K):
+    #         for k in range(len(r_bold_hat[j])):
+    #             #t_hat[i][k] += A_hat_T[i][j][k] * r_bold_hat[j][k]
+    #             u_bold_temp[i].append(A_hat_T[i][j][k] * r_bold_hat[j][k]) 
+#####################################################################################################
 
+    u_bold = MultiplyNTTs(A_hat_T,r_bold_hat,zetas2)
     
     AT_r_inv = [NTT_inv(poly, zetas) for poly in u_bold_temp]
 
@@ -528,24 +531,25 @@ def K_PKE_Encrypt(ek_pke,m,r):
     #v_hat    = [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
     #v_hat    = [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
     #tT_y_inv =  [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
-    v_hat = [[],[]]
+    v_hat_temp = [[],[]]
     
     #v_hat    = [[[0] for _ in range(1)] for _ in range(KYBER_K)]
     tT_y_inv =  [[[0] for _ in range(len(r_bold_hat[0]))] for _ in range(KYBER_K)]
     #for i in range(KYBER_K):
-    print("T_HAT: ",t_hat)
+    # print("T_HAT: ",t_hat)
     
     for i in range(KYBER_K):
-        for j in range(len(t_hat_T[0])):
+        for j in range(len(t_hat_T)):
             #v_hat[i][k] += t_hat_T[i][j][k] * r_bold_hat[j][k]
             #v_hat[j][k] += t_hat_T[j][k] * r_bold_hat[k][j]
             #v_hat[j].append(t_hat_T[k][j] * r_bold_hat[j][k]) #array may not be correct
-            v_hat[i].append(t_hat_T[i][j] * r_bold_hat[i][j]) 
-    print("T_HAT IS: ")
-    print(t_hat)
-
+            v_hat_temp[i][j].append(t_hat_T[i][j] * r_bold_hat[i][j]) 
+    # print("T_HAT IS: ")
+    # print(t_hat)
+    print("v_hat_temp IS: ")
+    print(v_hat_temp)
     tT_y_inv = [NTT_inv(poly, zetas) for poly in v_hat]
-    
+
     # + e2 + mu
     for i in range(KYBER_K):
         for j in range(KYBER_K):
