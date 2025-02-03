@@ -43,43 +43,43 @@ zetas2 = [17, -17, 2761, -2761, 583, -583, 2649, -2649,
     1722, -1722, 1212, -1212, 1874, -1874, 1029, -1029,
     2110, -2110, 2935, -2935, 885, -885, 2154, -2154]
 
-# def MultiplyNTTs(f_hat, g_hat, zetas2):
-#     # Ensure h_hat has the correct size
-#     n = len(f_hat)
-#     h_hat = [0] * n  # Initialize properly
+def MultiplyNTTs(f_hat, g_hat, zetas2):
+    # Ensure h_hat has the correct size
+    n = len(f_hat)
+    h_hat = [0] * n  # Initialize properly
 
-#     print(f"Lengths - f_hat: {len(f_hat)}, g_hat: {len(g_hat)}, zetas2: {len(zetas2)}")
-#     print(f"h_hat initialized with length: {len(h_hat)}")
-#     for i in range(n // 2):  
-#         h_hat[2*i], h_hat[2*i + 1] = BaseCaseMultiply(
-#             f_hat[2*i], f_hat[2*i + 1], g_hat[2*i], g_hat[2*i + 1], zetas2[i+1]
+    #print(f"Lengths - f_hat: {len(f_hat)}, g_hat: {len(g_hat)}, zetas2: {len(zetas2)}")
+    #print(f"h_hat initialized with length: {len(h_hat)}")
+    for i in range(128):  
+        h_hat[2*i], h_hat[2*i + 1] = BaseCaseMultiply(
+            f_hat[2*i], f_hat[2*i + 1], g_hat[2*i], g_hat[2*i + 1], zetas2[i]
+        )
+    print("MultiplyNTT output length:",len(h_hat))
+    return h_hat  # Make sure to return it
+
+# def MultiplyNTTs(f_hat, g_hat,zetas):
+#     """
+#     Given the coefficients of two polynomials compute the coefficients of
+#     their product
+#     """
+#     new_coeffs = []
+#     for i in range(64):
+#         r0, r1 = BaseCaseMultiply(
+#             f_hat[4 * i + 0],
+#             f_hat[4 * i + 1],
+#             g_hat[4 * i + 0],
+#             g_hat[4 * i + 1],
+#             zetas[64 + i],
 #         )
-
-#     return h_hat  # Make sure to return it
-
-def MultiplyNTTs(f_hat, g_hat,zetas):
-    """
-    Given the coefficients of two polynomials compute the coefficients of
-    their product
-    """
-    new_coeffs = []
-    for i in range(64):
-        r0, r1 = BaseCaseMultiply(
-            f_hat[4 * i + 0],
-            f_hat[4 * i + 1],
-            g_hat[4 * i + 0],
-            g_hat[4 * i + 1],
-            zetas[64 + i],
-        )
-        r2, r3 = BaseCaseMultiply(
-            f_hat[4 * i + 2],
-            f_hat[4 * i + 3],
-            g_hat[4 * i + 2],
-            g_hat[4 * i + 3],
-            -zetas[64 + i],
-        )
-        new_coeffs += [r0, r1, r2, r3]
-    return new_coeffs
+#         r2, r3 = BaseCaseMultiply(
+#             f_hat[4 * i + 2],
+#             f_hat[4 * i + 3],
+#             g_hat[4 * i + 2],
+#             g_hat[4 * i + 3],
+#             -zetas[64 + i],
+#         )
+#         new_coeffs += [r0, r1, r2, r3]
+#     return new_coeffs
 
 def BaseCaseMultiply (a0, a1, b0, b1, gamma):
     c0 = a0*b0 + a1*b1*gamma
@@ -207,6 +207,31 @@ def NTT(f, zetas):
 
     return f_hat
 
+def NTT_inv(f_hat, zetas):
+    """
+    Computes ̂ the polynomial 𝑓 ∈ 𝑅𝑞 that corresponds to the given NTT representation 𝑓 ∈ 𝑇𝑞.
+    """
+    f = f_hat
+    l = 2
+    k = 127
+    while l <= 128:
+        start = 0
+        while start < 256:
+            zeta = zetas[k]
+            k = k - 1
+            for j in range(start, start + l):
+                t = f[j]
+                f[j] = t + f[j + l]
+                f[j + l] = f[j + l] - t
+                f[j + l] = zeta * f[j + l]
+            start = j + l + 1
+        l = l << 1
+
+    for j in range(256):
+        f[j] = (f[j] * 3303) % 3329
+    
+    return f
+
 def K_PKE_Encrypt(ek_pke,m,r):
     N = 0
     i = 0
@@ -256,16 +281,29 @@ def K_PKE_Encrypt(ek_pke,m,r):
    # r_bold_hat = NTT(r_bold,zetas)
     A_hat_T = transpose_matrix(A_hat)
 
+
     # Compute t_hat = A_hat_T @ r_bold_hat 
-    u_bold = [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
-    #u_bold_temp = [0 for _ in range(KYBER_K)]
+    u_bold = [[0 for _ in range(KYBER_N)] for _ in range(KYBER_K)]
 
     for i in range(KYBER_K):
         for j in range(KYBER_K):
-            u_bold[i] += MultiplyNTTs(A_hat[j][i],r_bold_hat[j],zetas2)
+            temp_poly = MultiplyNTTs(A_hat[j][i], r_bold_hat[j], zetas2)
+            for k in range(256):  # Assuming each polynomial has 256 coefficients
+                u_bold[i][k] += temp_poly[k]
 
-    print("u_bold: ",u_bold)
 
+    print(f"Length of u_bold: {len(u_bold)}, Length of u_bold[0]: {len(u_bold[0])}, Length of u_bold[1]: {len(u_bold[1])}")
+    print(f"u_bold: {u_bold}")
+
+    #AT_y_inv = []
+    #AT_r_inv = [NTT_inv(poly, zetas) for poly in u_bold]
+
+
+    #print(f"Length of AT_r_inv: {len(AT_r_inv)}, Length of AT_r_inv[0]: {len(AT_r_inv[0])}")
+
+    # for i in range(KYBER_K):
+    #     for j in range(len(u_bold_temp[j])):   
+    #         u_bold[i] = [(u_bold_temp[i][j] + e1[i][j]) % KYBER_Q for j in range(len(u_bold_temp[i]))] 
 
 
 
