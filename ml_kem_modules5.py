@@ -270,10 +270,42 @@ def NTT_inv(f_hat, zetas):
     return f
 
 def MultiplyNTTs(f_hat, g_hat, zetas2):
-    h_hat = []
-    for i in range(128):
-        h_hat[2*i], h_hat[2*i + 1] = BaseCaseMultiply(f_hat[2*i],f_hat[2*i + 1],g_hat[2*i],g_hat[2*i + 1], zetas2[i+1])
-    return h_hat
+    # Ensure h_hat has the correct size
+    n = len(f_hat)
+    h_hat = [0] * n  # Initialize properly
+
+    print(f"Lengths - f_hat: {len(f_hat)}, g_hat: {len(g_hat)}, zetas2: {len(zetas2)}")
+    print(f"h_hat initialized with length: {len(h_hat)}")
+    for i in range(128):  
+        h_hat[2*i], h_hat[2*i + 1] = BaseCaseMultiply(
+            f_hat[2*i], f_hat[2*i + 1], g_hat[2*i], g_hat[2*i + 1], zetas2[i]
+        )
+
+    return h_hat  # Make sure to return it
+
+def MultiplyNTTs(f_hat, g_hat, zetas):
+    """
+    Given the coefficients of two polynomials compute the coefficients of
+    their product
+    """
+    new_coeffs = []
+    for i in range(64):
+        r0, r1 = BaseCaseMultiply(
+            f_hat[4 * i + 0],
+            f_hat[4 * i + 1],
+            g_hat[4 * i + 0],
+            g_hat[4 * i + 1],
+            zetas[64 + i],
+        )
+        r2, r3 = BaseCaseMultiply(
+            f_hat[4 * i + 2],
+            f_hat[4 * i + 3],
+            g_hat[4 * i + 2],
+            g_hat[4 * i + 3],
+            -zetas[64 + i],
+        )
+        new_coeffs += [r0, r1, r2, r3]
+    return new_coeffs
 
 def BaseCaseMultiply (a0, a1, b0, b1, gamma):
     c0 = a0*b0 + a1*b1*gamma
@@ -392,14 +424,17 @@ def K_PKE_KeyGen(d):
     s_hat = [NTT(poly, zetas) for poly in s]
     e_hat = [NTT(poly, zetas) for poly in e]
 
-    # Compute t_hat = A_hat @ s_hat + e_hat
-    t_hat = [[0] * len(s_hat[0]) for _ in range(KYBER_K)]
+    t_hat = [[0 for _ in range(KYBER_N)] for _ in range(KYBER_K)]
+
     for i in range(KYBER_K):
         for j in range(KYBER_K):
-            for k in range(len(s_hat[j])):
-                t_hat[i][k] += A_hat[i][j][k] * s_hat[j][k]
-        t_hat[i] = [(t_hat[i][k] + e_hat[i][k]) % KYBER_Q for k in range(len(e_hat[i]))]
+            temp_poly = MultiplyNTTs(A_hat[j][i], s_hat[j], zetas2)
+            for k in range(256):  # Assuming each polynomial has 256 coefficients
+                t_hat[i][k] += temp_poly[k] % KYBER_Q
 
+    for i in range(KYBER_K):
+            for k in range(256):  # Assuming each polynomial has 256 coefficients
+                t_hat[i][k] += e_hat[i][k] % KYBER_Q
 
     for i in range(KYBER_K):
             ek_pke += (ByteEncode(t_hat[i], 12))
@@ -450,6 +485,7 @@ def Decode_Vector(input_bytes, d):
 
 
 def K_PKE_Encrypt(ek_pke,m,r):
+    #################### INITIALIZING VARIABLES AND ARRAYS ###############################
     N = 0
     i = 0
     j = 0
@@ -460,16 +496,13 @@ def K_PKE_Encrypt(ek_pke,m,r):
     t_hat_bytes, rho = ek_pke[:-32], ek_pke[-32:]
     t_hat = [0 for _ in range(KYBER_K)]
 
-
+    ################################# T_HAT ##############################################
     for i in range(KYBER_K):
         #t_hat.append(Decode_Vector(t_hat_bytes[384*i:384*(i+1)], 12))
         t_hat[i] = Decode_Vector(t_hat_bytes[384*i:384*(i+1)], 12)
         print("T_HAT_BYTES: ",i, "Length: ", len(t_hat_bytes[384*i:384*(i+1)]))
         
-
-    # print("T_HAT IS: ")
-    # print(t_hat)
-    
+    ################################# A_HAT ##############################################
     A_hat = [[0 for _ in range(KYBER_K)] for _ in range(KYBER_K)]
 
     for i in range(KYBER_K):
@@ -478,86 +511,59 @@ def K_PKE_Encrypt(ek_pke,m,r):
             xof_bytes = XOF(bytes(rho), j, i)
             A_hat[i][j] = SampleNTT(xof_bytes)
 
+    ################################# R_BOLD ##############################################
     i = 0
     for i in range (KYBER_K):
         r_bold.append(SamplePolyCBD(prf(ETA1,r,bytes([N])),ETA1)) 
         N = N + 1
 
+    ################################# e1_BOLD ##############################################
     i = 0
     for i in range (KYBER_K):
         e1.append(SamplePolyCBD(prf(ETA2,r,bytes([N])),ETA2)) 
         N = N + 1
-    
+
+    ################################# e2_BOLD ##############################################
     e2 = SamplePolyCBD(prf(ETA2,r,bytes([N])),ETA2)
 
-
+    ################################# R_BOLD_HAT ###########################################
     r_bold_hat = [NTT(poly, zetas) for poly in r_bold]
- 
 
-   # r_bold_hat = NTT(r_bold,zetas)
-    A_hat_T = transpose_matrix(A_hat)
+    ################################## U_BOLD ##############################################
+    u_bold_temp = [[0 for _ in range(KYBER_N)] for _ in range(KYBER_K)]
 
-    # Compute t_hat = A_hat_T @ r_bold_hat 
-    u_bold = [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
-    #u_bold_temp = [0 for _ in range(KYBER_K)]
-
-##################### REPLACED WITH MULTIPLY_NTT #################################################
-    # u_bold_temp = [[],[]]
-
-    # u_bold = [0 for _ in range(KYBER_K)]
-    # #t_hat =  [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
-    # for i in range(KYBER_K):
-    #     for j in range(KYBER_K):
-    #         for k in range(len(r_bold_hat[j])):
-    #             #t_hat[i][k] += A_hat_T[i][j][k] * r_bold_hat[j][k]
-    #             u_bold_temp[i].append(A_hat_T[i][j][k] * r_bold_hat[j][k]) 
-#####################################################################################################
-
-    u_bold = MultiplyNTTs(A_hat_T,r_bold_hat,zetas2)
-    
-    AT_r_inv = [NTT_inv(poly, zetas) for poly in u_bold_temp]
-
-    for i in range(KYBER_K):
-        #for j in range(KYBER_K):
-        for k in range(len(u_bold_temp[j])):   
-            u_bold[i] = [(AT_r_inv[i][k] + e1[i][k]) % KYBER_Q for k in range(len(e1[i]))] 
-
-
-       
-    mu = decompress(1,ByteDecode(m,1))
-    t_hat_T = transpose_matrix(t_hat)
-
-    # Compute v = t_hat_T @ r_bold_hat +e2 + mu
-    #v_hat    = [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
-    #v_hat    = [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
-    #tT_y_inv =  [[0] * len(r_bold_hat[0]) for _ in range(KYBER_K)]
-    v_hat_temp = [[],[]]
-    
-    #v_hat    = [[[0] for _ in range(1)] for _ in range(KYBER_K)]
-    tT_y_inv =  [[[0] for _ in range(len(r_bold_hat[0]))] for _ in range(KYBER_K)]
-    #for i in range(KYBER_K):
-    # print("T_HAT: ",t_hat)
-    
-    for i in range(KYBER_K):
-        for j in range(len(t_hat_T)):
-            #v_hat[i][k] += t_hat_T[i][j][k] * r_bold_hat[j][k]
-            #v_hat[j][k] += t_hat_T[j][k] * r_bold_hat[k][j]
-            #v_hat[j].append(t_hat_T[k][j] * r_bold_hat[j][k]) #array may not be correct
-            v_hat_temp[i][j].append(t_hat_T[i][j] * r_bold_hat[i][j]) 
-    # print("T_HAT IS: ")
-    # print(t_hat)
-    print("v_hat_temp IS: ")
-    print(v_hat_temp)
-    tT_y_inv = [NTT_inv(poly, zetas) for poly in v_hat]
-
-    # + e2 + mu
     for i in range(KYBER_K):
         for j in range(KYBER_K):
-            for k in range(len(r_bold_hat[j])):   
-                u_bold[i] = [(tT_y_inv[i][k] + e2[k]) % KYBER_Q for k in range(len(e2))] 
-                u_bold[i] = [(tT_y_inv[i][k] + mu[k]) % KYBER_Q for k in range(len(mu))] 
+            temp_poly = MultiplyNTTs(A_hat[j][i], r_bold_hat[j], zetas2)
+            for k in range(256):  # Assuming each polynomial has 256 coefficients
+                u_bold_temp[i][k] += temp_poly[k] % KYBER_Q
 
-    #v = NTT_inv(t_hat_T @ r_bold_hat) + e2 + mu
+    u_bold = [NTT_inv(poly, zetas) for poly in u_bold_temp]
+
+    for i in range(KYBER_K):
+            for k in range(256):  # Assuming each polynomial has 256 coefficients
+                u_bold[i][k] += e1[i][k] % KYBER_Q
+
+    ################################## MU ##################################################
+    mu = decompress(1,ByteDecode(m,1))
+
+    ################################## v ###################################################
+    v_temp = [[0 for _ in range(KYBER_N)] for _ in range(KYBER_K)]
+
+    for j in range(KYBER_K):
+            temp_poly = MultiplyNTTs(t_hat[j], r_bold_hat[j], zetas2)
+            for k in range(256):  # Assuming each polynomial has 256 coefficients
+                v_temp[k] += temp_poly[k] % KYBER_Q
+
+    v = [NTT_inv(poly, zetas) for poly in v_temp]
+
+
+    for k in range(256):  # Assuming each polynomial has 256 coefficients
+        v[k] += e2[k] % KYBER_Q
+        v[k] += mu[k] % KYBER_Q
+
+
+    ################################## C1 and C2 ############################################
     c1 = ByteEncode(compress(du,u_bold),du)
     c2 = ByteEncode(compress(dv,v),dv)
 
@@ -573,8 +579,8 @@ if __name__ == "__main__":
     plaintext = "Hello world"
     r = H(bytes(123))
 
-    ciphertext = K_PKE_Encrypt(ek_pke, bytes(12345),r)
-    print("Ciphertext:", ciphertext)
+    # ciphertext = K_PKE_Encrypt(ek_pke, bytes(12345),r)
+    # print("Ciphertext:", ciphertext)
 
 
 
