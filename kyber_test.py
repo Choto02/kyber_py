@@ -43,19 +43,43 @@ zetas2 = [17, -17, 2761, -2761, 583, -583, 2649, -2649,
     1722, -1722, 1212, -1212, 1874, -1874, 1029, -1029,
     2110, -2110, 2935, -2935, 885, -885, 2154, -2154]
 
-def MultiplyNTTs(f_hat, g_hat, zetas2):
-    # Ensure h_hat has the correct size
-    n = len(f_hat)
-    h_hat = [0] * n  # Initialize properly
+# def MultiplyNTTs(f_hat, g_hat, zetas2):
+#     # Ensure h_hat has the correct size
+#     n = len(f_hat)
+#     h_hat = [0] * n  # Initialize properly
 
-    print(f"Lengths - f_hat: {len(f_hat)}, g_hat: {len(g_hat)}, zetas2: {len(zetas2)}")
-    print(f"h_hat initialized with length: {len(h_hat)}")
-    for i in range(n // 2):  
-        h_hat[2*i], h_hat[2*i + 1] = BaseCaseMultiply(
-            f_hat[2*i], f_hat[2*i + 1], g_hat[2*i], g_hat[2*i + 1], zetas2[i+1]
+#     print(f"Lengths - f_hat: {len(f_hat)}, g_hat: {len(g_hat)}, zetas2: {len(zetas2)}")
+#     print(f"h_hat initialized with length: {len(h_hat)}")
+#     for i in range(n // 2):  
+#         h_hat[2*i], h_hat[2*i + 1] = BaseCaseMultiply(
+#             f_hat[2*i], f_hat[2*i + 1], g_hat[2*i], g_hat[2*i + 1], zetas2[i+1]
+#         )
+
+#     return h_hat  # Make sure to return it
+
+def MultiplyNTTs(f_hat, g_hat,zetas):
+    """
+    Given the coefficients of two polynomials compute the coefficients of
+    their product
+    """
+    new_coeffs = []
+    for i in range(64):
+        r0, r1 = BaseCaseMultiply(
+            f_hat[4 * i + 0],
+            f_hat[4 * i + 1],
+            g_hat[4 * i + 0],
+            g_hat[4 * i + 1],
+            zetas[64 + i],
         )
-
-    return h_hat  # Make sure to return it
+        r2, r3 = BaseCaseMultiply(
+            f_hat[4 * i + 2],
+            f_hat[4 * i + 3],
+            g_hat[4 * i + 2],
+            g_hat[4 * i + 3],
+            -zetas[64 + i],
+        )
+        new_coeffs += [r0, r1, r2, r3]
+    return new_coeffs
 
 def BaseCaseMultiply (a0, a1, b0, b1, gamma):
     c0 = a0*b0 + a1*b1*gamma
@@ -239,6 +263,8 @@ def K_PKE_Encrypt(ek_pke,m,r):
     for i in range(KYBER_K):
         for j in range(KYBER_K):
             u_bold[i] += MultiplyNTTs(A_hat[j][i],r_bold_hat[j],zetas2)
+
+    print("u_bold: ",u_bold)
 
 
 
