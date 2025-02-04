@@ -373,12 +373,17 @@ def _decompress_ele(x, d):
 
 def compress(d, coeffs):
     """
-    Compress the polynomial by compressing each coefficient
-
-    NOTE: This is lossy compression
+    Compress every element of the matrix to have at most ``d`` bits
     """
-    coeffs_new = [_compress_ele(c, d) for c in coeffs]
+    coeffs_new = []
+    for row in coeffs:
+        for ele in row:
+            #print(row)
+            #print(ele)
+            coeffs_new.append(_compress_ele(ele, d))
     return coeffs_new
+
+
 
 def decompress(d, coeffs):
     """
@@ -548,21 +553,21 @@ def K_PKE_Encrypt(ek_pke,m,r):
     mu = decompress(1,ByteDecode(m,1))
 
     ################################## v ###################################################
-    v_temp = [[0 for _ in range(KYBER_N)] for _ in range(KYBER_K)]
+    v_temp = [0 for _ in range(KYBER_N)] 
 
     for j in range(KYBER_K):
             temp_poly = MultiplyNTTs(t_hat[j], r_bold_hat[j], zetas2)
             for k in range(256):  # Assuming each polynomial has 256 coefficients
                 v_temp[k] += temp_poly[k] % KYBER_Q
 
-    v = [NTT_inv(poly, zetas) for poly in v_temp]
+    v = NTT_inv(v_temp, zetas2)
 
 
     for k in range(256):  # Assuming each polynomial has 256 coefficients
         v[k] += e2[k] % KYBER_Q
         v[k] += mu[k] % KYBER_Q
 
-
+    print("U_BOLD IS: ",u_bold)
     ################################## C1 and C2 ############################################
     c1 = ByteEncode(compress(du,u_bold),du)
     c2 = ByteEncode(compress(dv,v),dv)
@@ -579,8 +584,8 @@ if __name__ == "__main__":
     plaintext = "Hello world"
     r = H(bytes(123))
 
-    # ciphertext = K_PKE_Encrypt(ek_pke, bytes(12345),r)
-    # print("Ciphertext:", ciphertext)
+    ciphertext = K_PKE_Encrypt(ek_pke, bytes(12345),r)
+    print("Ciphertext:", ciphertext)
 
 
 
