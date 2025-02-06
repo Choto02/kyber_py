@@ -355,7 +355,7 @@ def transpose_matrix(matrix):
     transposed = [[matrix[j][i] for j in range(len(matrix))] for i in range(len(matrix[0]))]
     return transposed
 
-def _compress_ele(x, d):
+def compress_ele(x, d):
     """
     Compute round((2^d / q) * x) % 2^d
     """
@@ -371,18 +371,34 @@ def _decompress_ele(x, d):
     y = (3329 * x + t) >> d
     return y
 
+# def compress(d, coeffs):
+#     """
+#     Compress every element of the matrix to have at most ``d`` bits
+#     """
+#     #coeffs_new = []
+#     coeffs_new = [[0 for _ in range(KYBER_N)] for _ in range(KYBER_K)]
+#     for row in coeffs:
+#         print(row)
+#         for ele in row:
+#             coeffs_new.append(compress_ele(ele, d))
+            
+#     return coeffs_new
 def compress(d, coeffs):
     """
-    Compress every element of the matrix to have at most ``d`` bits
+    Compress every element of the input (matrix or list) to have at most `d` bits.
     """
     coeffs_new = []
-    for row in coeffs:
-        for ele in row:
-            #print(row)
-            #print(ele)
-            coeffs_new.append(_compress_ele(ele, d))
+    
+    if isinstance(coeffs, int):  # Handle scalar input
+        return compress_ele(coeffs, d)
+    
+    if isinstance(coeffs[0], list):  # If it's a matrix (list of lists)
+        for row in coeffs:
+            coeffs_new.append([compress_ele(ele, d) for ele in row])
+    else:  # If it's a flat list
+        coeffs_new = [compress_ele(ele, d) for ele in coeffs]
+    
     return coeffs_new
-
 
 
 def decompress(d, coeffs):
@@ -395,6 +411,7 @@ def decompress(d, coeffs):
     """
     coeffs_new = [_decompress_ele(c, d) for c in coeffs]
     return coeffs_new
+
 
 def K_PKE_KeyGen(d):
     """
@@ -567,7 +584,7 @@ def K_PKE_Encrypt(ek_pke,m,r):
         v[k] += e2[k] % KYBER_Q
         v[k] += mu[k] % KYBER_Q
 
-    print("U_BOLD IS: ",u_bold)
+    #print("U_BOLD IS: ",u_bold)
     ################################## C1 and C2 ############################################
     c1 = ByteEncode(compress(du,u_bold),du)
     c2 = ByteEncode(compress(dv,v),dv)
