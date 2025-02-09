@@ -462,14 +462,32 @@ def K_PKE_KeyGen(d):
             ek_pke += (ByteEncode(t_hat[i], 12))
     ek_pke += rho
 
-
     for i in range(KYBER_K):
-        # Encode each s_hat polynomial and append as a separate byte array
-        encoded_poly = ByteEncode(s_hat[i], 12)
-        dk_pke.append(encoded_poly)  # Append as a list of bytes
+            dk_pke += (ByteEncode(s_hat[i], 12))
 
-    return (ek_pke, dk_pke)
+    # Convert lists to bytes before returning
+    ek_pke_bytes = bytes(ek_pke)  
+    dk_pke_bytes = bytes(dk_pke)  
+    return (ek_pke_bytes, dk_pke_bytes)
 
+def K_PKE_Decrypt(dk_pke, c):
+    """
+    Uses the decryption key to decrypt a ciphertext following
+    Algorithm 15 (FIPS 203)
+    """
+    n = KYBER_K * du * 32
+    c1, c2 = c[:n], c[n:]
+
+    u = decompress(du,ByteDecode(c1,du))
+    v = decompress(dv,ByteDecode(c2,dv))
+    s_hat = ByteDecode(dk_pke,12)
+
+    u_hat = NTT(u)
+    s_hat_T = transpose_matrix(s_hat)
+    w = v - NTT_inv(s_hat_T @ u_hat)
+    m = ByteEncode(compress(1,w),1)
+
+    return m
 
 def Decode_Vector(input_bytes, d):
     # Bytes needed to decode a polynomial
@@ -489,43 +507,7 @@ def Decode_Vector(input_bytes, d):
     return [item for sublist in elements for item in sublist]
 
     
-def K_PKE_Decrypt(dk_pke, c):
-    """
-    Uses the decryption key to decrypt a ciphertext following
-    Algorithm 15 (FIPS 203)
-    """
-    n = KYBER_K * du * 32  # Total bytes for KYBER_K compressed polynomials
-    c1, c2 = c[:n], c[n:]
-    u = []
 
-    # Split c1 into chunks for each polynomial in the vector u
-    chunk_size = du * 32  # Bytes per compressed polynomial
-    for i in range(KYBER_K):
-        chunk = c1[i*chunk_size : (i+1)*chunk_size]
-        decoded_chunk = Decode_Vector(chunk, du)  # Decode bytes to polynomial
-        decompressed_poly = decompress(du, decoded_chunk)  # Decompress coefficients
-        u.append(decompressed_poly)  # Append as a separate polynomial
-
-    # Decrypt using u (vector of polynomials) and s_hat
-    v = decompress(dv, ByteDecode(c2, dv))
-    s_hat = [ByteDecode(poly_bytes, 12) for poly_bytes in dk_pke]
-
-    u_hat = [NTT(poly, zetas) for poly in u]
-
-    vector_temp = [0 for _ in range(KYBER_N)] 
-
-    for j in range(KYBER_K):
-        temp_poly = MultiplyNTTs(s_hat[j], u_hat[j], zetas2)
-        for k in range(256):  # Assuming each polynomial has 256 coefficients
-            vector_temp[k] += temp_poly[k] % KYBER_Q
-
-    vector_temp2 = NTT_inv(vector_temp,zetas)
-    print("v: ",v)
-    print("vector_temp2: ",vector_temp2)
-    w = [v[i] - vector_temp2[i] for i in range(len(v))]
-    m = ByteEncode(compress(1,w),1)
-
-    return m
 
 def K_PKE_Encrypt(ek_pke,m,r):
     #################### INITIALIZING VARIABLES AND ARRAYS ###############################
@@ -541,8 +523,9 @@ def K_PKE_Encrypt(ek_pke,m,r):
 
     ################################# T_HAT ##############################################
     for i in range(KYBER_K):
+        #t_hat.append(Decode_Vector(t_hat_bytes[384*i:384*(i+1)], 12))
         t_hat[i] = Decode_Vector(t_hat_bytes[384*i:384*(i+1)], 12)
-
+        print("T_HAT_BYTES: ",i, "Length: ", len(t_hat_bytes[384*i:384*(i+1)]))
         
     ################################# A_HAT ##############################################
     A_hat = [[0 for _ in range(KYBER_K)] for _ in range(KYBER_K)]
@@ -606,33 +589,29 @@ def K_PKE_Encrypt(ek_pke,m,r):
 
     #print("U_BOLD IS: ",u_bold)
     ################################## C1 and C2 ############################################
-    c1 = []
-    for poly in u_bold:
-        compressed_poly = compress(du, poly)
-        encoded_poly = ByteEncode(compressed_poly, du)
-        c1 += encoded_poly
-
-    # Process v (single polynomial) for c2
-    compressed_v = compress(dv, v)
-    c2 = ByteEncode(compressed_v, dv)
+    c1 = ByteEncode(compress(du,u_bold),du)
+    c2 = ByteEncode(compress(dv,v),dv)
 
     return c1 + c2
 
 
 
 if __name__ == "__main__":
-    ek_pke, dk_pke = K_PKE_KeyGen(bytes(1422))
-    print("Public Key Length:", len(ek_pke))
-    print("Private Key Length:", len(dk_pke))
+    #ek_pke, dk_pke = K_PKE_KeyGen(bytes(1422))
+    #print("Public Key Length:", ek_pke)
+    d = bytes(1422)
+    rho, sigma = G(d + bytes([KYBER_K]))
+    print(rho)
+    
+    #print("Private Key Length:", len(dk_pke))
 
-    plaintext = "Hello world"
-    r = H(bytes(123))
+    #plaintext = "Hello world"
+    #r = H(bytes(123))
 
-    ciphertext = K_PKE_Encrypt(ek_pke, bytes(12345),r)
+    #ciphertext = K_PKE_Encrypt(ek_pke, bytes(12345),r)
     #print("Ciphertext:", ciphertext)
 
-    decrypted_plaintext = K_PKE_Decrypt(dk_pke, ciphertext)
-    decrypted_bytes = bytes(decrypted_plaintext)
-    decrypted_string = decrypted_bytes.decode('utf-8', errors='ignore')
 
-    print("Decrypted Plaintext:", decrypted_string)
+
+
+    #ciphertext = bytes(999)
