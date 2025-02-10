@@ -153,41 +153,36 @@ def ByteDecode(B,d):
     
     return F
 
-# def XOF(bytes32, i, j):
-#         """
-#         eXtendable-Output Function (XOF) described in 4.9 of FIPS 203 (page 19)
-#         """
-#         input_bytes = bytes32 + i + j
-#         if len(input_bytes) != 34:
-#             raise ValueError(
-#                 "Input bytes should be one 32 byte array and 2 single bytes."
-#             )
-#         return shake_128(input_bytes).digest(840)
 
-def XOF(bytes32, j, i):
-    if not isinstance(bytes32, bytes):
-        raise TypeError(f"bytes32 must be a bytes object, but got {type(bytes32)}")
+def XOF(bytes32, i, j):
+    # if not isinstance(bytes32, bytes):
+    #     raise TypeError(f"bytes32 must be a bytes object, but got {type(bytes32)}")
     
-    i_bytes = i.to_bytes(2, 'little')
-    j_bytes = j.to_bytes(2, 'little')
+    # i_bytes = i.to_bytes(2, 'little')
+    # j_bytes = j.to_bytes(2, 'little')
     
-    input_bytes = bytes32 + i_bytes + j_bytes  # Concatenation works with bytes
-
+    # input_bytes = bytes32 + i_bytes + j_bytes  # Concatenation works with bytes
+    input_bytes = bytes32 + i + j
+    if len(input_bytes) != 34:
+        raise ValueError(
+            "Input bytes should be one 32 byte array and 2 single bytes."
+        )
     return shake_128(input_bytes).digest(840)
 
 def SampleNTT(input_bytes):
 
     i, j = 0, 0
     a = []
-    while j < 256:
-        d1 = input_bytes[0] + 256 * (input_bytes[1] % 16)
-        d2 = (input_bytes[1] // 16) + 16 * input_bytes[2]
+    while j < KYBER_N:
+        #increasing i value gets you a fresh 3-byte array C from XOF every iteration
+        d1 = input_bytes[i] + 256 * (input_bytes[i+1] % 16)
+        d2 = (input_bytes[i+1] // 16) + 16 * input_bytes[i+2]
 
         if d1 < 3329:
             a.append(d1)
             j = j + 1
 
-        if d2 < 3329 and j < 256:
+        if d2 < 3329 and j < KYBER_N:
             a.append(d2)
             j = j + 1
         i = i + 3
@@ -269,19 +264,19 @@ def NTT_inv(f_hat, zetas):
     
     return f
 
-def MultiplyNTTs(f_hat, g_hat, zetas2):
-    # Ensure h_hat has the correct size
-    n = len(f_hat)
-    h_hat = [0] * n  # Initialize properly
+# def MultiplyNTTs(f_hat, g_hat, zetas2):
+#     # Ensure h_hat has the correct size
+#     n = len(f_hat)
+#     h_hat = [0] * n  # Initialize properly
 
-    print(f"Lengths - f_hat: {len(f_hat)}, g_hat: {len(g_hat)}, zetas2: {len(zetas2)}")
-    print(f"h_hat initialized with length: {len(h_hat)}")
-    for i in range(128):  
-        h_hat[2*i], h_hat[2*i + 1] = BaseCaseMultiply(
-            f_hat[2*i], f_hat[2*i + 1], g_hat[2*i], g_hat[2*i + 1], zetas2[i]
-        )
+#     print(f"Lengths - f_hat: {len(f_hat)}, g_hat: {len(g_hat)}, zetas2: {len(zetas2)}")
+#     print(f"h_hat initialized with length: {len(h_hat)}")
+#     for i in range(128):  
+#         h_hat[2*i], h_hat[2*i + 1] = BaseCaseMultiply(
+#             f_hat[2*i], f_hat[2*i + 1], g_hat[2*i], g_hat[2*i + 1], zetas2[i]
+#         )
 
-    return h_hat  # Make sure to return it
+#     return h_hat  # Make sure to return it
 
 def MultiplyNTTs(f_hat, g_hat, zetas):
     """
@@ -308,10 +303,8 @@ def MultiplyNTTs(f_hat, g_hat, zetas):
     return new_coeffs
 
 def BaseCaseMultiply (a0, a1, b0, b1, gamma):
-    c0 = a0*b0 + a1*b1*gamma
-    c0 = c0 % 3329
-    c1 = a0*b1 + a1*b0
-    c1 = c1 % 3329
+    c0 = (a0*b0 + a1*b1*gamma) % 3329
+    c1 = (a0*b1 + a1*b0) % 3329
     return (c0,c1)
 
 def prf(eta, s, b):
@@ -383,6 +376,8 @@ def _decompress_ele(x, d):
 #             coeffs_new.append(compress_ele(ele, d))
             
 #     return coeffs_new
+
+
 def compress(d, coeffs):
     """
     Compress every element of the input (matrix or list) to have at most `d` bits.
@@ -417,6 +412,8 @@ def K_PKE_KeyGen(d):
     """
     Use randomness to generate an encryption key and a corresponding decryption key 
     """
+    print("d: ",d)
+
     i = 0
     j = 0
     A_hat = [[0 for _ in range(KYBER_K)] for _ in range(KYBER_K )]
@@ -427,17 +424,24 @@ def K_PKE_KeyGen(d):
     ek_pke = []
     dk_pke = []
     N = 0  # Set counter for PRF
-    rho, sigma = G(d + bytes(KYBER_K))
+    rho, sigma = G(d + bytes([KYBER_K]))  # I WAS MISSING SQUARE BRACKETS SMH
+
+    
 
     for i in range(KYBER_K):
         for j in range(KYBER_K):
-            A_hat[i][j] = SampleNTT(rho+ bytes([j])+ bytes([i]))
+            xof_bytes = XOF(rho, bytes([j]), bytes([i]))
+            # ABDULLAH
+            A_hat[i][j] = SampleNTT(xof_bytes)
+
+    
 
     i = 0
     for i in range(KYBER_K):
         s.append(SamplePolyCBD(prf(ETA1, sigma, bytes([N])), ETA1)) 
         N = N + 1
     
+
     i = 0
     for i in range(KYBER_K):
         e.append(SamplePolyCBD(prf(ETA1, sigma, bytes([N])), ETA1)) 
@@ -447,17 +451,17 @@ def K_PKE_KeyGen(d):
     e_hat = [NTT(poly, zetas) for poly in e]
 
     t_hat = [[0 for _ in range(KYBER_N)] for _ in range(KYBER_K)]
-
+    
     for i in range(KYBER_K):
         for j in range(KYBER_K):
-            temp_poly = MultiplyNTTs(A_hat[j][i], s_hat[j], zetas2)
-            for k in range(256):  # Assuming each polynomial has 256 coefficients
-                t_hat[i][k] += temp_poly[k] % KYBER_Q
+            temp_poly = MultiplyNTTs(A_hat[i][j], s_hat[j], zetas2)
+            for k in range(256):  # Adding the two products (mat mult)
+                t_hat[i][k] = (t_hat[i][k] + temp_poly[k]) % KYBER_Q
 
     for i in range(KYBER_K):
             for k in range(256):  # Assuming each polynomial has 256 coefficients
-                t_hat[i][k] += e_hat[i][k] % KYBER_Q
-
+                t_hat[i][k] = (t_hat[i][k] + e_hat[i][k]) % KYBER_Q
+    print("t_hat: ",t_hat)
     for i in range(KYBER_K):
             ek_pke += (ByteEncode(t_hat[i], 12))
     ek_pke += rho
@@ -475,16 +479,30 @@ def K_PKE_Decrypt(dk_pke, c):
     Uses the decryption key to decrypt a ciphertext following
     Algorithm 15 (FIPS 203)
     """
-    n = KYBER_K * du * 32
+    n = KYBER_K * du * 32  # Total bytes for KYBER_K compressed polynomials
     c1, c2 = c[:n], c[n:]
+    u = []
+    # Split c1 into chunks for each polynomial in the vector u
+    chunk_size = du * 32  # Bytes per compressed polynomial
+    for i in range(KYBER_K):
+        chunk = c1[i*chunk_size : (i+1)*chunk_size]
+        decoded_chunk = Decode_Vector(chunk, du)  # Decode bytes to polynomial
+        decompressed_poly = decompress(du, decoded_chunk)  # Decompress coefficients
+        u.append(decompressed_poly)  # Append as a separate polynomial
 
-    u = decompress(du,ByteDecode(c1,du))
-    v = decompress(dv,ByteDecode(c2,dv))
-    s_hat = ByteDecode(dk_pke,12)
-
-    u_hat = NTT(u)
-    s_hat_T = transpose_matrix(s_hat)
-    w = v - NTT_inv(s_hat_T @ u_hat)
+    # Decrypt using u (vector of polynomials) and s_hat
+    v = decompress(dv, ByteDecode(c2, dv))
+    s_hat = [ByteDecode(poly_bytes, 12) for poly_bytes in dk_pke]
+    u_hat = [NTT(poly, zetas) for poly in u]
+    vector_temp = [0 for _ in range(KYBER_N)] 
+    for j in range(KYBER_K):
+        temp_poly = MultiplyNTTs(s_hat[j], u_hat[j], zetas2)
+        for k in range(256):  # Assuming each polynomial has 256 coefficients
+            vector_temp[k] += temp_poly[k] % KYBER_Q
+    vector_temp2 = NTT_inv(vector_temp,zetas)
+    print("v: ",v)
+    print("vector_temp2: ",vector_temp2)
+    w = [v[i] - vector_temp2[i] for i in range(len(v))]
     m = ByteEncode(compress(1,w),1)
 
     return m
@@ -597,11 +615,10 @@ def K_PKE_Encrypt(ek_pke,m,r):
 
 
 if __name__ == "__main__":
-    #ek_pke, dk_pke = K_PKE_KeyGen(bytes(1422))
+    d = b"1422"
+    ek_pke, dk_pke = K_PKE_KeyGen(d)
     #print("Public Key Length:", ek_pke)
-    d = bytes(1422)
-    rho, sigma = G(d + bytes([KYBER_K]))
-    print(rho)
+
     
     #print("Private Key Length:", len(dk_pke))
 
