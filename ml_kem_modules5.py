@@ -239,30 +239,56 @@ def NTT(f, zetas):
 
     return f_hat
 
-def NTT_inv(f_hat, zetas):
-    """
-    Computes ̂ the polynomial 𝑓 ∈ 𝑅𝑞 that corresponds to the given NTT representation 𝑓 ∈ 𝑇𝑞.
-    """
-    f = f_hat
-    l = 2
-    k = 127
-    while l <= 128:
-        start = 0
-        while start < 256:
-            zeta = zetas[k]
-            k = k - 1
-            for j in range(start, start + l):
-                t = f[j]
-                f[j] = t + f[j + l]
-                f[j + l] = f[j + l] - t
-                f[j + l] = zeta * f[j + l]
-            start = j + l + 1
-        l = l << 1
+# def NTT_inv(f_hat, zetas):
+#     """
+#     Computes ̂ the polynomial 𝑓 ∈ 𝑅𝑞 that corresponds to the given NTT representation 𝑓 ∈ 𝑇𝑞.
+#     """
+#     f = f_hat
+#     l = 2
+#     k = 127
+#     while l <= 128:
+#         start = 0
+#         while start < 256:
+#             zeta = zetas[k]
+#             k = k - 1
+#             for j in range(start, start + l):
+#                 t = f[j]
+#                 f[j] = t + f[j + l]
+#                 f[j + l] = f[j + l] - t
+#                 f[j + l] = zeta * f[j + l]
+#             start = j + l + 1
+#         l = l << 1
 
-    for j in range(256):
-        f[j] = (f[j] * 3303) % 3329
+#     for j in range(256):
+#         f[j] = (f[j] * 3303) % 3329
     
-    return f
+#     return f
+
+def NTT_inv(f_hat, zetas):
+        """
+        Convert a polynomial to number-theoretic transform (NTT) form.
+        The input is in standard order, the output is in bit-reversed order.
+        """
+        k, l = 1, 128
+        coeffs = f_hat
+        zetas = zetas
+        while l >= 2:
+            start = 0
+            while start < 256:
+                zeta = zetas[k]
+                k = k + 1
+                for j in range(start, start + l):
+                    t = zeta * coeffs[j + l]
+                    coeffs[j + l] = coeffs[j] - t
+                    coeffs[j] = coeffs[j] + t
+                start = l + (j + 1)
+            l = l >> 1
+
+        for j in range(256):
+            coeffs[j] = coeffs[j] % 3329
+
+        return coeffs
+
 
 def MultiplyNTTs(f_hat, g_hat, zetas2):
     # Ensure h_hat has the correct size
@@ -591,6 +617,7 @@ def K_PKE_Encrypt(ek_pke,m,r):
     for i in range(KYBER_K):
             for k in range(256):  # Assuming each polynomial has 256 coefficients
                 u_bold[i][k] += e1[i][k] % KYBER_Q
+    
 
     ################################## MU ##################################################
     mu = decompress(1,ByteDecode(m,1))
@@ -601,10 +628,10 @@ def K_PKE_Encrypt(ek_pke,m,r):
     for j in range(KYBER_K):
             temp_poly = MultiplyNTTs(t_hat[j], r_bold_hat[j], zetas2)
             for k in range(256):  # Assuming each polynomial has 256 coefficients
-                v_temp[k] += temp_poly[k] % KYBER_Q
-
+                v_temp[k] = (v_temp[k] + temp_poly[k]) % KYBER_Q
+    
     v = NTT_inv(v_temp, zetas2)
-
+    print(v)
 
     for k in range(256):  # Assuming each polynomial has 256 coefficients
         v[k] += e2[k] % KYBER_Q
@@ -612,9 +639,11 @@ def K_PKE_Encrypt(ek_pke,m,r):
 
     #print("U_BOLD IS: ",u_bold)
     ################################## C1 and C2 ############################################
-    c1 = ByteEncode(compress(du,u_bold),du)
-    c2 = ByteEncode(compress(dv,v),dv)
+    compressed_polys = [compress(du, poly) for poly in u_bold]
+    c1 = b"".join([bytes(ByteEncode(poly, du)) for poly in compressed_polys])
+    #print("C1 LENGTH: ",c1)
 
+    c2 = bytes(ByteEncode(compress(dv, v), dv))
     return c1 + c2
 
 
@@ -628,13 +657,12 @@ if __name__ == "__main__":
     #print("Private Key Length:", dk_pke)
 
     #plaintext = "Hello world"
-    r = G(b"1422")
-
-    ciphertext = K_PKE_Encrypt(ek_pke, b"12345",r)
-    print("Ciphertext:", ciphertext)
+    k, r = G(b"1422")
+    m = bytes(32)
+    ciphertext = K_PKE_Encrypt(ek_pke, m,r)
+    #print("Ciphertext:", ciphertext)
 
 
 
 
     #ciphertext = bytes(999)
-
