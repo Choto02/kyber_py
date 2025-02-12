@@ -264,43 +264,43 @@ def NTT_inv(f_hat, zetas):
     
     return f
 
-# def MultiplyNTTs(f_hat, g_hat, zetas2):
-#     # Ensure h_hat has the correct size
-#     n = len(f_hat)
-#     h_hat = [0] * n  # Initialize properly
+def MultiplyNTTs(f_hat, g_hat, zetas2):
+    # Ensure h_hat has the correct size
+    n = len(f_hat)
+    h_hat = [0] * n  # Initialize properly
 
-#     print(f"Lengths - f_hat: {len(f_hat)}, g_hat: {len(g_hat)}, zetas2: {len(zetas2)}")
-#     print(f"h_hat initialized with length: {len(h_hat)}")
-#     for i in range(128):  
-#         h_hat[2*i], h_hat[2*i + 1] = BaseCaseMultiply(
-#             f_hat[2*i], f_hat[2*i + 1], g_hat[2*i], g_hat[2*i + 1], zetas2[i]
+    print(f"Lengths - f_hat: {len(f_hat)}, g_hat: {len(g_hat)}, zetas2: {len(zetas2)}")
+    print(f"h_hat initialized with length: {len(h_hat)}")
+    for i in range(128):  
+        h_hat[2*i], h_hat[2*i + 1] = BaseCaseMultiply(
+            f_hat[2*i], f_hat[2*i + 1], g_hat[2*i], g_hat[2*i + 1], zetas2[i]
+        )
+
+    return h_hat  # Make sure to return it
+
+# def MultiplyNTTs(f_hat, g_hat, zetas):
+#     """
+#     Given the coefficients of two polynomials compute the coefficients of
+#     their product
+#     """
+#     new_coeffs = []
+#     for i in range(64):
+#         r0, r1 = BaseCaseMultiply(
+#             f_hat[4 * i + 0],
+#             f_hat[4 * i + 1],
+#             g_hat[4 * i + 0],
+#             g_hat[4 * i + 1],
+#             zetas[64 + i],
 #         )
-
-#     return h_hat  # Make sure to return it
-
-def MultiplyNTTs(f_hat, g_hat, zetas):
-    """
-    Given the coefficients of two polynomials compute the coefficients of
-    their product
-    """
-    new_coeffs = []
-    for i in range(64):
-        r0, r1 = BaseCaseMultiply(
-            f_hat[4 * i + 0],
-            f_hat[4 * i + 1],
-            g_hat[4 * i + 0],
-            g_hat[4 * i + 1],
-            zetas[64 + i],
-        )
-        r2, r3 = BaseCaseMultiply(
-            f_hat[4 * i + 2],
-            f_hat[4 * i + 3],
-            g_hat[4 * i + 2],
-            g_hat[4 * i + 3],
-            -zetas[64 + i],
-        )
-        new_coeffs += [r0, r1, r2, r3]
-    return new_coeffs
+#         r2, r3 = BaseCaseMultiply(
+#             f_hat[4 * i + 2],
+#             f_hat[4 * i + 3],
+#             g_hat[4 * i + 2],
+#             g_hat[4 * i + 3],
+#             -zetas[64 + i],
+#         )
+#         new_coeffs += [r0, r1, r2, r3]
+#     return new_coeffs
 
 def BaseCaseMultiply (a0, a1, b0, b1, gamma):
     c0 = (a0*b0 + a1*b1*gamma) % 3329
@@ -450,18 +450,23 @@ def K_PKE_KeyGen(d):
     s_hat = [NTT(poly, zetas) for poly in s]
     e_hat = [NTT(poly, zetas) for poly in e]
 
+    t_hat_temp = [[0 for _ in range(KYBER_N)] for _ in range(KYBER_K)]
     t_hat = [[0 for _ in range(KYBER_N)] for _ in range(KYBER_K)]
     
     for i in range(KYBER_K):
         for j in range(KYBER_K):
             temp_poly = MultiplyNTTs(A_hat[i][j], s_hat[j], zetas2)
             for k in range(256):  # Adding the two products (mat mult)
-                t_hat[i][k] = (t_hat[i][k] + temp_poly[k]) % KYBER_Q
+                t_hat_temp[i][k] = (t_hat_temp[i][k] + temp_poly[k]) % KYBER_Q
+
+
 
     for i in range(KYBER_K):
-            for k in range(256):  # Assuming each polynomial has 256 coefficients
-                t_hat[i][k] = (t_hat[i][k] + e_hat[i][k]) % KYBER_Q
-    print("t_hat: ",t_hat)
+        for k in range(256):  # Assuming each polynomial has 256 coefficients
+            t_hat[i][k] = (t_hat_temp[i][k] + e_hat[i][k]) % KYBER_Q
+              
+
+
     for i in range(KYBER_K):
             ek_pke += (ByteEncode(t_hat[i], 12))
     ek_pke += rho
@@ -551,7 +556,7 @@ def K_PKE_Encrypt(ek_pke,m,r):
     for i in range(KYBER_K):
         for j in range(KYBER_K):
             #A_hat[i][j] = SampleNTT(XOF(bytes(rho)+ bytes([i])+ bytes([j])))
-            xof_bytes = XOF(bytes(rho), j, i)
+            xof_bytes = XOF(bytes(rho), bytes([j]), bytes([i]))
             A_hat[i][j] = SampleNTT(xof_bytes)
 
     ################################# R_BOLD ##############################################
@@ -620,15 +625,16 @@ if __name__ == "__main__":
     #print("Public Key Length:", ek_pke)
 
     
-    #print("Private Key Length:", len(dk_pke))
+    #print("Private Key Length:", dk_pke)
 
     #plaintext = "Hello world"
-    #r = H(bytes(123))
+    r = G(b"1422")
 
-    #ciphertext = K_PKE_Encrypt(ek_pke, bytes(12345),r)
-    #print("Ciphertext:", ciphertext)
+    ciphertext = K_PKE_Encrypt(ek_pke, b"12345",r)
+    print("Ciphertext:", ciphertext)
 
 
 
 
     #ciphertext = bytes(999)
+
